@@ -1,13 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.IO;
 using System.Xml;
+using System.Diagnostics;
 
 namespace QTIParserApp.Model
 {
     class QTIParser
     {
-        public static Quiz ParseQTI(string filePath)
+        public static Quiz ParseQTI(string filePath, string manifestPath, string extractPath)
         {
             XmlDocument doc = new XmlDocument();
             doc.Load(filePath);
@@ -29,51 +29,15 @@ namespace QTIParserApp.Model
                 string questionText = questionNode.SelectSingleNode("./qti:presentation/qti:material/qti:mattext", nsmgr)?.InnerXml ?? "No question text";
 
                 Question question = new Question(questionId, questionType, questionText);
-
-                XmlNodeList answerNodes = questionNode.SelectNodes(".//qti:response_label", nsmgr);
-                foreach (XmlNode answerNode in answerNodes)
-                {
-                    string answerId = answerNode.Attributes["ident"].InnerText;
-                    string answerText = answerNode.SelectSingleNode("./qti:material/qti:mattext", nsmgr)?.InnerText ?? "";
-                    bool isCorrect = questionNode.SelectSingleNode($"./qti:resprocessing/qti:respcondition/qti:conditionvar/qti:varequal[text()='{answerId}']", nsmgr) != null;
-
-                    question.Answers.Add(new Answer(answerId, answerText, isCorrect));
-                }
-
-                string manifestPath = Path.Combine(Path.GetDirectoryName(filePath), "imsmanifest.xml");
-                ParseManifestAttachments(manifestPath, question);
-
                 quiz.Questions.Add(question);
+            }
+
+            if (!string.IsNullOrEmpty(manifestPath))
+            {
+                ManifestParser.AttachMediaToQuestions(quiz, manifestPath, extractPath);
             }
 
             return quiz;
         }
-
-        private static void ParseManifestAttachments(string manifestPath, Question question)
-        {
-            if (!File.Exists(manifestPath))
-                return;
-
-            XmlDocument manifestDoc = new XmlDocument();
-            manifestDoc.Load(manifestPath);
-
-            XmlNamespaceManager nsmgr = new XmlNamespaceManager(manifestDoc.NameTable);
-            nsmgr.AddNamespace("ims", "http://www.imsglobal.org/xsd/imscp_v1p1");
-
-            XmlNodeList resources = manifestDoc.SelectNodes("//ims:resource", nsmgr);
-            foreach (XmlNode resource in resources)
-            {
-                XmlNode fileNode = resource.SelectSingleNode("ims:file", nsmgr);
-                if (fileNode != null)
-                {
-                    string href = fileNode.Attributes["href"]?.InnerText;
-                    if (!string.IsNullOrEmpty(href))
-                    {
-                        question.Attachments.Add(new QuestionAttachment(href, "file"));
-                    }
-                }
-            }
-        }
     }
 }
-

@@ -60,24 +60,17 @@ namespace QTIParserApp.ViewModel
                 string quizFilePath = Directory.GetFiles(extractPath, "*.xml", SearchOption.AllDirectories)
                                 .FirstOrDefault(f => !f.Contains("imsmanifest.xml") && !f.Contains("assessment_meta.xml"));
 
-
                 Debug.WriteLine($"[DEBUG] Found imsmanifest.xml at: {manifestPath}");
                 Debug.WriteLine($"[DEBUG] Found quiz file at: {quizFilePath}");
 
                 if (quizFilePath != null)
                 {
-                    Quiz parsedQuiz = QTIParser.ParseQTI(quizFilePath);
+                    Quiz parsedQuiz = QTIParser.ParseQTI(quizFilePath, manifestPath, extractPath);
                     Debug.WriteLine($"[DEBUG] Parsed Quiz Title: {parsedQuiz.Title}");
                     Debug.WriteLine($"[DEBUG] Number of Questions: {parsedQuiz.Questions.Count}");
 
                     if (parsedQuiz != null && parsedQuiz.Questions.Count > 0)
                     {
-                        if (manifestPath != null)
-                        {
-                            Dictionary<string, string> fileMappings = ParseManifest(manifestPath);
-                            AttachMediaToQuestions(parsedQuiz, fileMappings, extractPath);
-                        }
-
                         CurrentQuiz = parsedQuiz;
                         OnPropertyChanged(nameof(CurrentQuiz));
 
@@ -97,49 +90,6 @@ namespace QTIParserApp.ViewModel
                 else
                 {
                     Debug.WriteLine("[ERROR] No valid QTI XML file found.");
-                }
-            }
-        }
-
-        private Dictionary<string, string> ParseManifest(string manifestPath)
-        {
-            Dictionary<string, string> fileMappings = new Dictionary<string, string>();
-
-            XmlDocument doc = new XmlDocument();
-            doc.Load(manifestPath);
-
-            XmlNamespaceManager nsmgr = new XmlNamespaceManager(doc.NameTable);
-            nsmgr.AddNamespace("ims", "http://www.imsglobal.org/xsd/imsccv1p3/imscp_v1p1");
-
-            XmlNodeList resourceNodes = doc.SelectNodes("//ims:resource", nsmgr);
-            foreach (XmlNode resource in resourceNodes)
-            {
-                string resourceId = resource.Attributes["identifier"]?.InnerText;
-                string fileName = resource.Attributes["href"]?.InnerText;
-
-                if (!string.IsNullOrEmpty(resourceId) && !string.IsNullOrEmpty(fileName))
-                {
-                    fileMappings[resourceId] = fileName;
-                }
-            }
-
-            return fileMappings;
-        }
-
-        private void AttachMediaToQuestions(Quiz quiz, Dictionary<string, string> fileMappings, string extractPath)
-        {
-            foreach (var question in quiz.Questions)
-            {
-                foreach (var attachment in question.Attachments)
-                {
-                    if (fileMappings.TryGetValue(attachment.FilePath, out string actualFilePath))
-                    {
-                        string fullPath = Path.Combine(extractPath, "web_resources", actualFilePath);
-                        if (File.Exists(fullPath))
-                        {
-                            attachment.FilePath = fullPath;
-                        }
-                    }
                 }
             }
         }
