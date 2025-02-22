@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "QTIParserApp (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "QTIParserApp (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
