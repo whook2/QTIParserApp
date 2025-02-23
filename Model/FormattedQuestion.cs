@@ -6,10 +6,8 @@ namespace QTIParserApp.Model
     {
         public string QuestionType { get; set; }
         public string Text { get; set; }
-
-        // Because we've already decoded the HTML in QTIParser, we can pass it
-        // directly to the WebView. No need for another decode step here:
-        public string FormattedText => "data:text/html," + Text;
+        // Now, FormattedText is simply the file URL to the question's HTML.
+        public string FormattedText => Text;
 
         public ObservableCollection<QuestionAttachment> Attachments { get; set; } = new();
 
@@ -24,4 +22,5 @@ namespace QTIParserApp.Model
         }
     }
 }
+
 

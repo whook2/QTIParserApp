@@ -47,24 +47,19 @@ namespace QTIParserApp.ViewModel
             StorageFile file = await picker.PickSingleFileAsync();
             if (file != null)
             {
-                // Create a temporary root folder for extraction.
+                // Create temporary extraction folder.
                 string extractRoot = Path.Combine(Path.GetTempPath(), "ExtractedQTI");
                 Directory.CreateDirectory(extractRoot);
-
-                // Use a subfolder named after the ZIP file (without its extension)
                 string zipFolderName = Path.GetFileNameWithoutExtension(file.Name);
                 string extractPath = Path.Combine(extractRoot, zipFolderName);
                 Directory.CreateDirectory(extractPath);
 
-                // Extract the ZIP file into our designated folder.
                 ZipFile.ExtractToDirectory(file.Path, extractPath, true);
                 Debug.WriteLine($"[DEBUG] Extracted ZIP to: {extractPath}");
 
-                // Find the quiz XML file (exclude imsmanifest.xml and assessment_meta.xml)
                 string quizFilePath = Directory.GetFiles(extractPath, "*.xml", SearchOption.AllDirectories)
                                               .FirstOrDefault(f => !f.Contains("imsmanifest.xml", StringComparison.OrdinalIgnoreCase)
                                                                 && !f.Contains("assessment_meta.xml", StringComparison.OrdinalIgnoreCase));
-                // Locate the manifest file.
                 string manifestPath = Directory.GetFiles(extractPath, "imsmanifest.xml", SearchOption.AllDirectories)
                                                .FirstOrDefault();
 
@@ -74,6 +69,9 @@ namespace QTIParserApp.ViewModel
 
                     if (parsedQuiz != null)
                     {
+                        // Persist the quiz attachments and questions to permanent storage.
+                        PersistQuiz(parsedQuiz, extractPath);
+
                         CurrentQuiz = parsedQuiz;
                         OnPropertyChanged(nameof(CurrentQuiz));
 
@@ -97,5 +95,60 @@ namespace QTIParserApp.ViewModel
                 }
             }
         }
+
+        private void PersistQuiz(Quiz quiz, string extractPath)
+        {
+            // Define a permanent folder under LocalApplicationData.
+            string permanentRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QTIParserApp", "SavedQuizzes");
+            Directory.CreateDirectory(permanentRoot);
+
+            // Create a folder for this quiz.
+            string quizPermanentFolder = Path.Combine(permanentRoot, quiz.QuizId);
+            Directory.CreateDirectory(quizPermanentFolder);
+
+            // For each attachment that uses a file:// URL, copy it to the permanent folder and update its URL.
+            foreach (var question in quiz.Questions)
+            {
+                foreach (var attachment in question.Attachments)
+                {
+                    if (attachment.FilePath.StartsWith("file:///", StringComparison.OrdinalIgnoreCase))
+                    {
+                        string oldUrl = attachment.FilePath;
+                        string oldLocalPath = oldUrl.Replace("file:///", "").Replace('/', '\\');
+                        string fileName = Path.GetFileName(oldLocalPath);
+                        string newLocalPath = Path.Combine(quizPermanentFolder, fileName);
+                        try
+                        {
+                            File.Copy(oldLocalPath, newLocalPath, true);
+                            string newUrl = "file:///" + newLocalPath.Replace('\\', '/');
+                            attachment.FilePath = newUrl;
+                            question.Text = question.Text.Replace(oldUrl, newUrl);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[ERROR] Persisting attachment failed: {ex.Message}");
+                        }
+                    }
+                }
+            }
+
+            // For each question, write its HTML content to a permanent .html file,
+            // and update question.Text to the file URL so the WebView can load it.
+            foreach (var question in quiz.Questions)
+            {
+                string questionHtmlFile = Path.Combine(quizPermanentFolder, $"question_{question.QuestionId}.html");
+                try
+                {
+                    File.WriteAllText(questionHtmlFile, question.Text);
+                    string fileUrl = "file:///" + questionHtmlFile.Replace('\\', '/');
+                    question.Text = fileUrl;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ERROR] Writing question HTML failed: {ex.Message}");
+                }
+            }
+        }
     }
 }
+
