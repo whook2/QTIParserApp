@@ -5,13 +5,12 @@ using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net;
 using System.Runtime.CompilerServices;
 using Microsoft.UI.Xaml;
-using QTIParserApp.Model;
 using Windows.Storage;
 using Windows.Storage.Pickers;
 using WinRT.Interop;
+using QTIParserApp.Model;
 
 namespace QTIParserApp.ViewModel
 {
@@ -28,17 +27,12 @@ namespace QTIParserApp.ViewModel
             }
         }
 
-        public ObservableCollection<FormattedQuestion> FormattedQuestions { get; private set; } = new ObservableCollection<FormattedQuestion>();
+        public ObservableCollection<FormattedQuestion> FormattedQuestions { get; private set; } = new();
 
         public event PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
-        }
-
-        public QuizViewModel()
-        {
-            CurrentQuiz = new Quiz("default_id", "No Quiz Loaded", 1);
         }
 
         public async void LoadQTIFile(Window window)
@@ -53,82 +47,45 @@ namespace QTIParserApp.ViewModel
             StorageFile file = await picker.PickSingleFileAsync();
             if (file != null)
             {
-                string tempPath = Path.Combine(Path.GetTempPath(), "ExtractedQTI");
-                if (Directory.Exists(tempPath))
-                    Directory.Delete(tempPath, true);
+                string extractPath = Path.Combine(Path.GetTempPath(), "ExtractedQTI");
+                Directory.CreateDirectory(extractPath);
 
-                ZipFile.ExtractToDirectory(file.Path, tempPath);
-                Debug.WriteLine($"[DEBUG] Extracted ZIP to: {tempPath}");
-
-                string extractPath = Directory.GetDirectories(tempPath).FirstOrDefault();
-                if (extractPath == null)
-                {
-                    Debug.WriteLine("[ERROR] No extracted folder found.");
-                    return;
-                }
-
-                Debug.WriteLine($"[DEBUG] Extracted folder found: {extractPath}");
+                ZipFile.ExtractToDirectory(file.Path, extractPath, true);
+                Debug.WriteLine($"[DEBUG] Extracted ZIP to: {extractPath}");
 
                 string quizFilePath = Directory.GetFiles(extractPath, "*.xml", SearchOption.AllDirectories)
                                               .FirstOrDefault(f => !f.Contains("imsmanifest.xml") && !f.Contains("assessment_meta.xml"));
 
-                if (quizFilePath == null)
+                string manifestPath = Directory.GetFiles(extractPath, "imsmanifest.xml", SearchOption.AllDirectories).FirstOrDefault();
+
+                if (quizFilePath != null)
                 {
-                    Debug.WriteLine("[ERROR] No valid quiz XML file found.");
-                    return;
-                }
+                    Quiz parsedQuiz = QTIParser.ParseQTI(quizFilePath, manifestPath, extractPath);
 
-                Debug.WriteLine($"[DEBUG] Found quiz file at: {quizFilePath}");
-
-                Quiz parsedQuiz = QTIParser.ParseQTI(quizFilePath);
-                if (parsedQuiz != null)
-                {
-                    CurrentQuiz = parsedQuiz;
-                    OnPropertyChanged(nameof(CurrentQuiz));
-
-                    FormattedQuestions = new ObservableCollection<FormattedQuestion>();
-                    foreach (var question in parsedQuiz.Questions)
+                    if (parsedQuiz != null)
                     {
-                        FormattedQuestions.Add(new FormattedQuestion(question));
-                    }
-                    OnPropertyChanged(nameof(FormattedQuestions));
+                        CurrentQuiz = parsedQuiz;
+                        OnPropertyChanged(nameof(CurrentQuiz));
 
-                    Debug.WriteLine("[DEBUG] Quiz loaded successfully.");
+                        FormattedQuestions.Clear();
+                        foreach (var question in parsedQuiz.Questions)
+                        {
+                            FormattedQuestions.Add(new FormattedQuestion(question));
+                        }
+                        OnPropertyChanged(nameof(FormattedQuestions));
+
+                        Debug.WriteLine("[DEBUG] Quiz loaded successfully.");
+                    }
+                    else
+                    {
+                        Debug.WriteLine("[ERROR] Failed to parse QTI file.");
+                    }
                 }
                 else
                 {
-                    Debug.WriteLine("[ERROR] Failed to parse QTI file.");
-                }
-            }
-            else
-            {
-                Debug.WriteLine("[INFO] No file was selected.");
-            }
-        }
-    }
-
-    public class FormattedQuestion
-    {
-        public string QuestionType { get; set; }
-        public string Text { get; set; }
-        public string FormattedText => "data:text/html," + WebUtility.HtmlDecode(Text);
-
-        // ✅ Fix: Ensure Attachments exists
-        public ObservableCollection<QuestionAttachment> Attachments { get; set; } = new ObservableCollection<QuestionAttachment>();
-
-        public FormattedQuestion(Question question)
-        {
-            QuestionType = question.QuestionType;
-            Text = question.Text;
-
-            if (question.Attachments != null)
-            {
-                foreach (var attachment in question.Attachments)
-                {
-                    Attachments.Add(attachment);
+                    Debug.WriteLine("[ERROR] No valid QTI XML file found.");
                 }
             }
         }
     }
-
 }

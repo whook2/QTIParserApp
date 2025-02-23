@@ -1,22 +1,21 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Xml;
 using System.Diagnostics;
+using System.IO;
+using System.Xml;
 
 namespace QTIParserApp.Model
 {
     class QTIParser
     {
-        public static Quiz ParseQTI(string filePath)
+        public static Quiz ParseQTI(string quizFilePath, string manifestPath, string extractPath)
         {
             XmlDocument doc = new XmlDocument();
-            doc.Load(filePath);
+            doc.Load(quizFilePath);
 
-            // Create XML namespace manager
             XmlNamespaceManager nsmgr = new XmlNamespaceManager(doc.NameTable);
             nsmgr.AddNamespace("qti", "http://www.imsglobal.org/xsd/ims_qtiasiv1p2");
 
-            // Locate the quiz information
             XmlNode quizNode = doc.SelectSingleNode("//qti:assessment", nsmgr);
             string quizId = quizNode?.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
             string quizTitle = quizNode?.Attributes["title"]?.InnerText ?? "Untitled Quiz";
@@ -24,77 +23,98 @@ namespace QTIParserApp.Model
             Quiz quiz = new Quiz(quizId, quizTitle, 1);
             Debug.WriteLine($"[DEBUG] Quiz Loaded: {quizTitle} (ID: {quizId})");
 
-            // Locate all questions
             XmlNodeList questionNodes = doc.SelectNodes("//qti:item", nsmgr);
             foreach (XmlNode questionNode in questionNodes)
             {
                 string questionId = questionNode.Attributes["ident"].InnerText;
-                string questionType = questionNode.SelectSingleNode("./qti:itemmetadata/qti:qtimetadata/qti:qtimetadatafield[qti:fieldlabel='question_type']/qti:fieldentry", nsmgr)?.InnerText ?? "unknown";
                 string questionText = questionNode.SelectSingleNode("./qti:presentation/qti:material/qti:mattext", nsmgr)?.InnerXml ?? "No question text";
-                double pointsPossible = double.Parse(questionNode.SelectSingleNode("./qti:itemmetadata/qti:qtimetadata/qti:qtimetadatafield[qti:fieldlabel='points_possible']/qti:fieldentry", nsmgr)?.InnerText ?? "1");
+                Question question = new Question(questionId, "unknown", questionText);
 
-                Question question = new Question(questionId, questionType, questionText) { PointsPossible = pointsPossible };
-
-                Debug.WriteLine($"[DEBUG] Question: {questionType} | Points: {pointsPossible} | Text: {questionText}");
-
-                // Locate answer choices
-                XmlNodeList answerNodes = questionNode.SelectNodes(".//qti:response_label", nsmgr);
-                foreach (XmlNode answerNode in answerNodes)
-                {
-                    string answerId = answerNode.Attributes["ident"].InnerText;
-                    string answerText = answerNode.SelectSingleNode("./qti:material/qti:mattext", nsmgr)?.InnerText ?? "";
-                    bool isCorrect = questionNode.SelectSingleNode($"./qti:resprocessing/qti:respcondition/qti:conditionvar/qti:varequal[text()='{answerId}']", nsmgr) != null;
-
-                    question.Answers.Add(new Answer(answerId, answerText, isCorrect));
-                    Debug.WriteLine($"  [DEBUG] Answer: {answerText} | Correct: {isCorrect}");
-                }
-
-                // Extract Attachments (Images, Files, LaTeX, Links, Tables)
                 XmlNodeList attachmentNodes = questionNode.SelectNodes(".//qti:mattext", nsmgr);
                 foreach (XmlNode attachmentNode in attachmentNodes)
                 {
                     string content = attachmentNode.InnerXml;
-                    Debug.WriteLine($"  [DEBUG] Raw Mattext Content: {content}");
 
                     if (content.Contains("<img"))
                     {
                         string src = ExtractBetween(content, "src=\"", "\"");
-                        if (!string.IsNullOrEmpty(src))
-                        {
-                            question.Attachments.Add(new QuestionAttachment(src, "image"));
-                            Debug.WriteLine($"  [DEBUG] Image found: {src}");
-                        }
+                        question.Attachments.Add(new QuestionAttachment(src, "image"));
                     }
                     if (content.Contains("<a "))
                     {
                         string href = ExtractBetween(content, "href=\"", "\"");
-                        if (!string.IsNullOrEmpty(href))
-                        {
-                            question.Attachments.Add(new QuestionAttachment(href, "link"));
-                            Debug.WriteLine($"  [DEBUG] Link found: {href}");
-                        }
-                    }
-                    if (content.Contains("<table"))
-                    {
-                        question.Attachments.Add(new QuestionAttachment("Embedded Table", "table"));
-                        Debug.WriteLine("  [DEBUG] Table found.");
-                    }
-                    if (content.Contains("equation_images"))
-                    {
-                        string latexUrl = ExtractBetween(content, "src=\"", "\"");
-                        if (!string.IsNullOrEmpty(latexUrl))
-                        {
-                            question.Attachments.Add(new QuestionAttachment(latexUrl, "latex"));
-                            Debug.WriteLine($"  [DEBUG] LaTeX found: {latexUrl}");
-                        }
+                        question.Attachments.Add(new QuestionAttachment(href, "document"));
                     }
                 }
 
                 quiz.Questions.Add(question);
             }
 
-            Debug.WriteLine($"[DEBUG] Finished parsing quiz. Total Questions: {quiz.Questions.Count}");
+            if (manifestPath != null)
+            {
+                Dictionary<string, string> fileMappings = ParseManifest(manifestPath);
+                AttachMediaToQuestions(quiz, fileMappings, extractPath);
+            }
+
             return quiz;
+        }
+
+        private static Dictionary<string, string> ParseManifest(string manifestPath)
+        {
+            Dictionary<string, string> fileMappings = new Dictionary<string, string>();
+
+            XmlDocument doc = new XmlDocument();
+            doc.Load(manifestPath);
+
+            XmlNamespaceManager nsmgr = new XmlNamespaceManager(doc.NameTable);
+            nsmgr.AddNamespace("ims", "http://www.imsglobal.org/xsd/imscp_v1p1");
+
+            XmlNodeList resourceNodes = doc.SelectNodes("//ims:resource", nsmgr);
+            foreach (XmlNode resource in resourceNodes)
+            {
+                string resourceId = resource.Attributes["identifier"]?.InnerText;
+                XmlNode fileNode = resource.SelectSingleNode("ims:file", nsmgr);
+                if (fileNode != null)
+                {
+                    string fileName = fileNode.Attributes["href"]?.InnerText;
+                    if (!string.IsNullOrEmpty(resourceId) && !string.IsNullOrEmpty(fileName))
+                    {
+                        fileMappings[resourceId] = fileName;
+                        Debug.WriteLine($"[DEBUG] Found Attachment Mapping: {resourceId} -> {fileName}");
+                    }
+                }
+            }
+
+            return fileMappings;
+        }
+
+        private static void AttachMediaToQuestions(Quiz quiz, Dictionary<string, string> fileMappings, string extractPath)
+        {
+            string mediaBasePath = Path.Combine(extractPath, "web_resources", "Uploaded Media");
+
+            foreach (var question in quiz.Questions)
+            {
+                for (int i = 0; i < question.Attachments.Count; i++)
+                {
+                    string attachmentPath = question.Attachments[i].FilePath;
+
+                    if (attachmentPath.Contains("$IMS-CC-FILEBASE$"))
+                    {
+                        string relativePath = attachmentPath.Replace("$IMS-CC-FILEBASE$/Uploaded%20Media/", "");
+                        string fullPath = Path.Combine(mediaBasePath, relativePath);
+
+                        if (File.Exists(fullPath))
+                        {
+                            question.Attachments[i] = new QuestionAttachment(fullPath, question.Attachments[i].Type);
+                            Debug.WriteLine($"[DEBUG] Replaced Attachment Path: {attachmentPath} -> {fullPath}");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"[ERROR] File Not Found: {fullPath}");
+                        }
+                    }
+                }
+            }
         }
 
         private static string ExtractBetween(string text, string start, string end)

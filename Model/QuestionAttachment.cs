@@ -3,12 +3,12 @@
     public class QuestionAttachment
     {
         public string FilePath { get; set; }  // Stores the actual file path or URL
-        public string AttachmentType { get; set; }  // Example: "image", "link", "table", "latex"
+        public string Type { get; set; }  // Example: "image", "link", "table", "latex"
 
-        public QuestionAttachment(string filePath, string attachmentType)
+        public QuestionAttachment(string filePath, string type)
         {
             FilePath = filePath;
-            AttachmentType = attachmentType;
+            Type = type;
         }
     }
 }
