@@ -111,13 +111,24 @@ namespace QTIParserApp.ViewModel
     {
         public string QuestionType { get; set; }
         public string Text { get; set; }
-
         public string FormattedText => "data:text/html," + WebUtility.HtmlDecode(Text);
+
+        // ✅ Fix: Ensure Attachments exists
+        public ObservableCollection<QuestionAttachment> Attachments { get; set; } = new ObservableCollection<QuestionAttachment>();
 
         public FormattedQuestion(Question question)
         {
             QuestionType = question.QuestionType;
             Text = question.Text;
+
+            if (question.Attachments != null)
+            {
+                foreach (var attachment in question.Attachments)
+                {
+                    Attachments.Add(attachment);
+                }
+            }
         }
     }
+
 }

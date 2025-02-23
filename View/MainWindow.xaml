@@ -34,10 +34,13 @@
                         <ItemsControl ItemsSource="{Binding Attachments}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <Image Source="{Binding FilePath}" Width="200" Height="200"/>
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock Text="{Binding FilePath}" FontWeight="Bold"/>
+                                    </StackPanel>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
+
                     </StackPanel>
                 </DataTemplate>
             </ListView.ItemTemplate>

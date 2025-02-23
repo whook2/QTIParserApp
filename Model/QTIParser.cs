@@ -54,18 +54,25 @@ namespace QTIParserApp.Model
                 foreach (XmlNode attachmentNode in attachmentNodes)
                 {
                     string content = attachmentNode.InnerXml;
+                    Debug.WriteLine($"  [DEBUG] Raw Mattext Content: {content}");
 
                     if (content.Contains("<img"))
                     {
                         string src = ExtractBetween(content, "src=\"", "\"");
-                        question.Attachments.Add(new QuestionAttachment(src, "image"));
-                        Debug.WriteLine($"  [DEBUG] Image found: {src}");
+                        if (!string.IsNullOrEmpty(src))
+                        {
+                            question.Attachments.Add(new QuestionAttachment(src, "image"));
+                            Debug.WriteLine($"  [DEBUG] Image found: {src}");
+                        }
                     }
                     if (content.Contains("<a "))
                     {
                         string href = ExtractBetween(content, "href=\"", "\"");
-                        question.Attachments.Add(new QuestionAttachment(href, "link"));
-                        Debug.WriteLine($"  [DEBUG] Link found: {href}");
+                        if (!string.IsNullOrEmpty(href))
+                        {
+                            question.Attachments.Add(new QuestionAttachment(href, "link"));
+                            Debug.WriteLine($"  [DEBUG] Link found: {href}");
+                        }
                     }
                     if (content.Contains("<table"))
                     {
@@ -75,8 +82,11 @@ namespace QTIParserApp.Model
                     if (content.Contains("equation_images"))
                     {
                         string latexUrl = ExtractBetween(content, "src=\"", "\"");
-                        question.Attachments.Add(new QuestionAttachment(latexUrl, "latex"));
-                        Debug.WriteLine($"  [DEBUG] LaTeX found: {latexUrl}");
+                        if (!string.IsNullOrEmpty(latexUrl))
+                        {
+                            question.Attachments.Add(new QuestionAttachment(latexUrl, "latex"));
+                            Debug.WriteLine($"  [DEBUG] LaTeX found: {latexUrl}");
+                        }
                     }
                 }
 
@@ -89,10 +99,10 @@ namespace QTIParserApp.Model
 
         private static string ExtractBetween(string text, string start, string end)
         {
-            int startIndex = text.IndexOf(start);
+            int startIndex = text.IndexOf(start, StringComparison.OrdinalIgnoreCase);
             if (startIndex == -1) return "";
             startIndex += start.Length;
-            int endIndex = text.IndexOf(end, startIndex);
+            int endIndex = text.IndexOf(end, startIndex, StringComparison.OrdinalIgnoreCase);
             return endIndex == -1 ? "" : text.Substring(startIndex, endIndex - startIndex);
         }
     }
