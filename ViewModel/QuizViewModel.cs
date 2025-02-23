@@ -47,16 +47,26 @@ namespace QTIParserApp.ViewModel
             StorageFile file = await picker.PickSingleFileAsync();
             if (file != null)
             {
-                string extractPath = Path.Combine(Path.GetTempPath(), "ExtractedQTI");
+                // Create a temporary root folder for extraction.
+                string extractRoot = Path.Combine(Path.GetTempPath(), "ExtractedQTI");
+                Directory.CreateDirectory(extractRoot);
+
+                // Use a subfolder named after the ZIP file (without its extension)
+                string zipFolderName = Path.GetFileNameWithoutExtension(file.Name);
+                string extractPath = Path.Combine(extractRoot, zipFolderName);
                 Directory.CreateDirectory(extractPath);
 
+                // Extract the ZIP file into our designated folder.
                 ZipFile.ExtractToDirectory(file.Path, extractPath, true);
                 Debug.WriteLine($"[DEBUG] Extracted ZIP to: {extractPath}");
 
+                // Find the quiz XML file (exclude imsmanifest.xml and assessment_meta.xml)
                 string quizFilePath = Directory.GetFiles(extractPath, "*.xml", SearchOption.AllDirectories)
-                                              .FirstOrDefault(f => !f.Contains("imsmanifest.xml") && !f.Contains("assessment_meta.xml"));
-
-                string manifestPath = Directory.GetFiles(extractPath, "imsmanifest.xml", SearchOption.AllDirectories).FirstOrDefault();
+                                              .FirstOrDefault(f => !f.Contains("imsmanifest.xml", StringComparison.OrdinalIgnoreCase)
+                                                                && !f.Contains("assessment_meta.xml", StringComparison.OrdinalIgnoreCase));
+                // Locate the manifest file.
+                string manifestPath = Directory.GetFiles(extractPath, "imsmanifest.xml", SearchOption.AllDirectories)
+                                               .FirstOrDefault();
 
                 if (quizFilePath != null)
                 {

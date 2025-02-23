@@ -1,5 +1,4 @@
 ﻿using System.Collections.ObjectModel;
-using System.Net;
 
 namespace QTIParserApp.Model
 {
@@ -7,7 +6,11 @@ namespace QTIParserApp.Model
     {
         public string QuestionType { get; set; }
         public string Text { get; set; }
-        public string FormattedText => "data:text/html," + WebUtility.HtmlDecode(Text);
+
+        // Because we've already decoded the HTML in QTIParser, we can pass it
+        // directly to the WebView. No need for another decode step here:
+        public string FormattedText => "data:text/html," + Text;
+
         public ObservableCollection<QuestionAttachment> Attachments { get; set; } = new();
 
         public FormattedQuestion(Question question)
