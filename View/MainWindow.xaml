@@ -23,16 +23,18 @@
                    Grid.Row="1"/>
 
         <ListView ItemsSource="{Binding FormattedQuestions}" Grid.Row="2"
-                  ScrollViewer.VerticalScrollBarVisibility="Auto">
+          ScrollViewer.VerticalScrollBarVisibility="Auto">
             <ListView.ItemTemplate>
                 <DataTemplate>
                     <StackPanel Margin="10">
                         <TextBlock Text="{Binding QuestionType}" FontWeight="Bold" FontSize="16"/>
                         <WebView2 Source="{Binding FormattedText}" Width="750" Height="150"/>
+
+                        <!-- Display images if available -->
                         <ItemsControl ItemsSource="{Binding Attachments}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding FilePath}"/>
+                                    <Image Source="{Binding FilePath}" Width="200" Height="200"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
