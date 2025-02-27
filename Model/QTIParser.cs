@@ -3,23 +3,23 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Net;  // for WebUtility
+using System.Net;
 using System.Xml;
 
 namespace QTIParserApp.Model
 {
-    class QTIParser
+    public class QTIParser
     {
         public static Quiz ParseQTI(string quizFilePath, string manifestPath, string extractPath)
         {
             XmlDocument doc = new XmlDocument();
             doc.Load(quizFilePath);
 
-            // QTI doc namespace manager
+            // Set up XML namespace manager.
             XmlNamespaceManager nsmgr = new XmlNamespaceManager(doc.NameTable);
             nsmgr.AddNamespace("qti", "http://www.imsglobal.org/xsd/ims_qtiasiv1p2");
 
-            // Identify quiz ID & Title
+            // Identify quiz ID & Title.
             XmlNode quizNode = doc.SelectSingleNode("//qti:assessment", nsmgr);
             string quizId = quizNode?.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
             string quizTitle = quizNode?.Attributes["title"]?.InnerText ?? "Untitled Quiz";
@@ -27,14 +27,14 @@ namespace QTIParserApp.Model
             Quiz quiz = new Quiz(quizId, quizTitle, 1);
             Debug.WriteLine($"[DEBUG] Quiz Loaded: {quizTitle} (ID: {quizId})");
 
-            // Parse <item> nodes for questions
+            // Get all <item> nodes for questions.
             XmlNodeList questionNodes = doc.SelectNodes("//qti:item", nsmgr);
             foreach (XmlNode questionNode in questionNodes)
             {
-                // Get question ID
+                // Get question ID.
                 string questionId = questionNode.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
 
-                // Parse question_type and points_possible (if available)
+                // Parse question_type and points_possible.
                 XmlNode questionTypeNode = questionNode.SelectSingleNode(
                     "./qti:itemmetadata/qti:qtimetadata/qti:qtimetadatafield[qti:fieldlabel='question_type']/qti:fieldentry",
                     nsmgr);
@@ -52,18 +52,17 @@ namespace QTIParserApp.Model
                 // Grab the main question text (HTML)
                 XmlNode textNode = questionNode.SelectSingleNode("./qti:presentation/qti:material/qti:mattext", nsmgr);
                 string encodedText = textNode?.InnerXml ?? "No question text";
-                // Decode HTML entities so &lt;img&gt; becomes <img>
                 string questionText = WebUtility.HtmlDecode(encodedText);
-                // Rewrite any "$IMS-CC-FILEBASE$" references to local file URLs (still relative)
+                // Rewrite any "$IMS-CC-FILEBASE$" references to local file URLs.
                 questionText = FixupLocalReferencesInHtml(questionText, extractPath);
 
-                // Create the question object (for now, question.Text holds the HTML content)
+                // Create the Question object.
                 Question question = new Question(questionId, questionType, questionText)
                 {
                     PointsPossible = questionPoints
                 };
 
-                // Also parse all <mattext> blocks for potential attachments
+                // Parse attachments (for images, links, etc.)
                 XmlNodeList mattextNodes = questionNode.SelectNodes(".//qti:mattext", nsmgr);
                 foreach (XmlNode matNode in mattextNodes)
                 {
@@ -88,40 +87,233 @@ namespace QTIParserApp.Model
                     }
                 }
 
+                // Use a switch to call specialized answer parsing.
+                switch (questionType)
+                {
+                    case "multiple_choice_question":
+                    case "true_false_question":
+                        ParseMultipleChoiceOrTF(questionNode, question, nsmgr);
+                        break;
+                    case "multiple_answers_question":
+                        ParseMultipleAnswers(questionNode, question, nsmgr);
+                        break;
+                    case "short_answer_question":
+                        ParseShortAnswer(questionNode, question, nsmgr);
+                        break;
+                    case "fill_in_multiple_blanks_question":
+                        ParseFillInBlanks(questionNode, question, nsmgr);
+                        break;
+                    case "multiple_dropdowns_question":
+                        ParseMultipleDropdowns(questionNode, question, nsmgr);
+                        break;
+                    case "matching_question":
+                        ParseMatching(questionNode, question, nsmgr);
+                        break;
+                    case "calculated_question":
+                        ParseCalculated(questionNode, question, nsmgr);
+                        break;
+                    case "numerical_question":
+                        ParseNumerical(questionNode, question, nsmgr);
+                        break;
+                    case "essay_question":
+                        // Typically no answers to parse.
+                        break;
+                    case "file_upload_question":
+                        // Typically no answer choices.
+                        break;
+                    case "text_only_question":
+                        // No answers.
+                        break;
+                    default:
+                        Debug.WriteLine($"[DEBUG] No specialized parsing for question type: {questionType}");
+                        break;
+                }
+
                 quiz.Questions.Add(question);
             }
 
-            // Debug log: show attachments before manifest fixup
-            Debug.WriteLine("***** Attachments Summary (before fixups) *****");
-            foreach (var q in quiz.Questions)
-            {
-                Debug.WriteLine($"Q {q.QuestionId} (Type: {q.QuestionType}) => {q.Attachments.Count} attachments");
-                foreach (var att in q.Attachments)
-                {
-                    Debug.WriteLine($"    {att.FilePath}");
-                }
-            }
-
-            // Parse manifest and fix attachment paths using file mappings
+            // Parse manifest and fix attachment paths using file mappings.
             if (!string.IsNullOrEmpty(manifestPath))
             {
                 Dictionary<string, string> fileMappings = ParseManifest(manifestPath);
                 AttachMediaToQuestions(quiz, fileMappings, extractPath);
             }
 
-            // Debug log: show attachments after fixup
-            Debug.WriteLine("***** Attachments Summary (after fixups) *****");
-            foreach (var q in quiz.Questions)
-            {
-                Debug.WriteLine($"Q {q.QuestionId} (Type: {q.QuestionType}) => {q.Attachments.Count} attachments");
-                foreach (var att in q.Attachments)
-                {
-                    Debug.WriteLine($"    {att.FilePath}");
-                }
-            }
-
             return quiz;
         }
+
+        #region Specialized Parsing Methods
+
+        private static void ParseMultipleChoiceOrTF(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            XmlNodeList labelNodes = questionNode.SelectNodes(".//qti:response_label", nsmgr);
+            foreach (XmlNode labelNode in labelNodes)
+            {
+                string answerId = labelNode.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
+                XmlNode answerTextNode = labelNode.SelectSingleNode(".//qti:material/qti:mattext", nsmgr);
+                string answerText = answerTextNode?.InnerText ?? "No text";
+                question.Answers.Add(new Answer(answerId, answerText, isCorrect: false));
+            }
+
+            XmlNodeList respConditions = questionNode.SelectNodes(".//qti:respcondition", nsmgr);
+            foreach (XmlNode condition in respConditions)
+            {
+                XmlNode varEqualNode = condition.SelectSingleNode(".//qti:varequal", nsmgr);
+                if (varEqualNode != null)
+                {
+                    string correctId = varEqualNode.InnerText.Trim();
+                    var matching = question.Answers.FirstOrDefault(a => a.AnswerId == correctId);
+                    if (matching != null)
+                    {
+                        matching.IsCorrect = true;
+                    }
+                }
+            }
+        }
+
+        private static void ParseMultipleAnswers(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            XmlNodeList labelNodes = questionNode.SelectNodes(".//qti:response_label", nsmgr);
+            foreach (XmlNode labelNode in labelNodes)
+            {
+                string answerId = labelNode.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
+                XmlNode answerTextNode = labelNode.SelectSingleNode(".//qti:material/qti:mattext", nsmgr);
+                string answerText = answerTextNode?.InnerText ?? "No text";
+                question.Answers.Add(new Answer(answerId, answerText, isCorrect: false));
+            }
+
+            XmlNodeList respConditions = questionNode.SelectNodes(".//qti:respcondition", nsmgr);
+            foreach (XmlNode condition in respConditions)
+            {
+                XmlNodeList varEqualNodes = condition.SelectNodes(".//qti:varequal", nsmgr);
+                foreach (XmlNode ve in varEqualNodes)
+                {
+                    string correctId = ve.InnerText.Trim();
+                    var matching = question.Answers.FirstOrDefault(a => a.AnswerId == correctId);
+                    if (matching != null)
+                    {
+                        matching.IsCorrect = true;
+                    }
+                }
+            }
+        }
+
+        private static void ParseShortAnswer(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            XmlNodeList varEqualNodes = questionNode.SelectNodes(".//qti:respcondition//qti:varequal", nsmgr);
+            foreach (XmlNode ve in varEqualNodes)
+            {
+                string acceptableAnswer = ve.InnerText.Trim();
+                question.Answers.Add(new Answer(Guid.NewGuid().ToString(), acceptableAnswer, isCorrect: true));
+            }
+        }
+
+        private static void ParseFillInBlanks(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            XmlNodeList responseNodes = questionNode.SelectNodes(".//qti:response_lid", nsmgr);
+            foreach (XmlNode response in responseNodes)
+            {
+                XmlNode answerTextNode = response.SelectSingleNode(".//qti:material/qti:mattext", nsmgr);
+                string answerText = answerTextNode?.InnerText ?? "No text";
+                XmlNodeList labelNodes = response.SelectNodes(".//qti:response_label", nsmgr);
+                foreach (XmlNode label in labelNodes)
+                {
+                    string answerId = label.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
+                    XmlNode labelTextNode = label.SelectSingleNode(".//qti:material/qti:mattext", nsmgr);
+                    string labelText = labelTextNode?.InnerText ?? "No option";
+                    question.Answers.Add(new Answer(answerId, labelText, isCorrect: false));
+                }
+            }
+            XmlNodeList respConditions = questionNode.SelectNodes(".//qti:respcondition", nsmgr);
+            foreach (XmlNode condition in respConditions)
+            {
+                XmlNode varEqualNode = condition.SelectSingleNode(".//qti:varequal", nsmgr);
+                if (varEqualNode != null)
+                {
+                    string correctId = varEqualNode.InnerText.Trim();
+                    var matching = question.Answers.FirstOrDefault(a => a.AnswerId == correctId);
+                    if (matching != null)
+                        matching.IsCorrect = true;
+                }
+            }
+        }
+
+        private static void ParseMultipleDropdowns(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            XmlNodeList responseNodes = questionNode.SelectNodes(".//qti:response_lid", nsmgr);
+            foreach (XmlNode response in responseNodes)
+            {
+                XmlNodeList labelNodes = response.SelectNodes(".//qti:response_label", nsmgr);
+                foreach (XmlNode label in labelNodes)
+                {
+                    string answerId = label.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
+                    XmlNode labelTextNode = label.SelectSingleNode(".//qti:material/qti:mattext", nsmgr);
+                    string labelText = labelTextNode?.InnerText ?? "No option";
+                    question.Answers.Add(new Answer(answerId, labelText, isCorrect: false));
+                }
+            }
+            XmlNodeList respConditions = questionNode.SelectNodes(".//qti:respcondition", nsmgr);
+            foreach (XmlNode condition in respConditions)
+            {
+                XmlNode varEqualNode = condition.SelectSingleNode(".//qti:varequal", nsmgr);
+                if (varEqualNode != null)
+                {
+                    string correctId = varEqualNode.InnerText.Trim();
+                    var matching = question.Answers.FirstOrDefault(a => a.AnswerId == correctId);
+                    if (matching != null)
+                        matching.IsCorrect = true;
+                }
+            }
+        }
+
+        private static void ParseMatching(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            XmlNodeList responseNodes = questionNode.SelectNodes(".//qti:response_lid", nsmgr);
+            foreach (XmlNode response in responseNodes)
+            {
+                XmlNodeList labelNodes = response.SelectNodes(".//qti:response_label", nsmgr);
+                foreach (XmlNode label in labelNodes)
+                {
+                    string answerId = label.Attributes["ident"]?.InnerText ?? Guid.NewGuid().ToString();
+                    XmlNode labelTextNode = label.SelectSingleNode(".//qti:material/qti:mattext", nsmgr);
+                    string labelText = labelTextNode?.InnerText ?? "No option";
+                    question.Answers.Add(new Answer(answerId, labelText, isCorrect: false));
+                }
+            }
+            XmlNodeList respConditions = questionNode.SelectNodes(".//qti:respcondition", nsmgr);
+            foreach (XmlNode condition in respConditions)
+            {
+                XmlNode varEqualNode = condition.SelectSingleNode(".//qti:varequal", nsmgr);
+                if (varEqualNode != null)
+                {
+                    string correctId = varEqualNode.InnerText.Trim();
+                    var matching = question.Answers.FirstOrDefault(a => a.AnswerId == correctId);
+                    if (matching != null)
+                        matching.IsCorrect = true;
+                }
+            }
+        }
+
+        private static void ParseCalculated(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            Debug.WriteLine("[DEBUG] Calculated question parsed; no static answers.");
+        }
+
+        private static void ParseNumerical(XmlNode questionNode, Question question, XmlNamespaceManager nsmgr)
+        {
+            XmlNode varEqualNode = questionNode.SelectSingleNode(".//qti:respcondition//qti:varequal", nsmgr);
+            if (varEqualNode != null)
+            {
+                string numericAnswer = varEqualNode.InnerText.Trim();
+                question.Answers.Add(new Answer(Guid.NewGuid().ToString(), numericAnswer, isCorrect: true));
+            }
+        }
+
+        // Essay, file_upload, and text_only questions require no answer parsing.
+
+        #endregion
+
+        #region Helper Methods
 
         private static string FixupLocalReferencesInHtml(string html, string extractPath)
         {
@@ -139,7 +331,7 @@ namespace QTIParserApp.Model
                 if (questionMark >= 0)
                     relativePath = relativePath.Substring(0, questionMark);
                 relativePath = WebUtility.UrlDecode(relativePath);
-                // Build local path based on expected folder structure.
+                // Use the constant "web_resources" folder.
                 string localPath = Path.Combine(extractPath, "web_resources", relativePath);
                 string fileUrl = "file:///" + localPath.Replace('\\', '/');
                 html = html.Remove(start, originalRef.Length);
@@ -203,11 +395,27 @@ namespace QTIParserApp.Model
                         if (questionMark != -1)
                             relativePath = relativePath.Substring(0, questionMark);
                         relativePath = WebUtility.UrlDecode(relativePath);
+                        // Construct expected path using the constant "web_resources"
                         string fullPath = Path.Combine(extractPath, "web_resources", relativePath);
+                        if (!File.Exists(fullPath))
+                        {
+                            // If not found, perform a recursive search.
+                            string fileName = Path.GetFileName(relativePath);
+                            string[] foundFiles = Directory.GetFiles(extractPath, fileName, SearchOption.AllDirectories);
+                            if (foundFiles.Length > 0)
+                            {
+                                fullPath = foundFiles[0];
+                                Debug.WriteLine($"[DEBUG] Found file via recursive search: {fullPath}");
+                            }
+                        }
                         if (File.Exists(fullPath))
                         {
-                            question.Attachments[i] = new QuestionAttachment(fullPath, question.Attachments[i].Type);
+                            string newUrl = "file:///" + fullPath.Replace('\\', '/');
+                            // Replace the attachment with the new file URL.
+                            question.Attachments[i] = new QuestionAttachment(newUrl, question.Attachments[i].Type);
                             Debug.WriteLine($"[DEBUG] Replaced Attachment Path: {originalPath} -> {fullPath}");
+                            // Also update the HTML if it still contains the original reference.
+                            question.Text = question.Text.Replace(originalPath, newUrl);
                         }
                         else
                         {
@@ -264,5 +472,11 @@ namespace QTIParserApp.Model
             }
             return results;
         }
+
+        #endregion
     }
 }
+
+
+
+

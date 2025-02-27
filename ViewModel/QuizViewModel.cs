@@ -73,7 +73,7 @@ namespace QTIParserApp.ViewModel
                         PersistQuiz(parsedQuiz, extractPath);
 
                         CurrentQuiz = parsedQuiz;
-                        OnPropertyChanged(nameof(CurrentQuiz));
+                        //OnPropertyChanged(nameof(CurrentQuiz));
 
                         FormattedQuestions.Clear();
                         foreach (var question in parsedQuiz.Questions)
@@ -96,17 +96,16 @@ namespace QTIParserApp.ViewModel
             }
         }
 
+        // May be able to delete/change once we get the database working
         private void PersistQuiz(Quiz quiz, string extractPath)
         {
-            // Define a permanent folder under LocalApplicationData.
             string permanentRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "QTIParserApp", "SavedQuizzes");
             Directory.CreateDirectory(permanentRoot);
 
-            // Create a folder for this quiz.
             string quizPermanentFolder = Path.Combine(permanentRoot, quiz.QuizId);
             Directory.CreateDirectory(quizPermanentFolder);
 
-            // For each attachment that uses a file:// URL, copy it to the permanent folder and update its URL.
+            // For each attachment with a file:// URL, copy it to the permanent folder.
             foreach (var question in quiz.Questions)
             {
                 foreach (var attachment in question.Attachments)
@@ -114,13 +113,26 @@ namespace QTIParserApp.ViewModel
                     if (attachment.FilePath.StartsWith("file:///", StringComparison.OrdinalIgnoreCase))
                     {
                         string oldUrl = attachment.FilePath;
-                        string oldLocalPath = oldUrl.Replace("file:///", "").Replace('/', '\\');
-                        string fileName = Path.GetFileName(oldLocalPath);
-                        string newLocalPath = Path.Combine(quizPermanentFolder, fileName);
+                        // Remove the "file:///" prefix and replace forward slashes.
+                        string oldLocalPath = oldUrl.Replace("file:///", "").Replace('/', Path.DirectorySeparatorChar);
+                        if (!File.Exists(oldLocalPath))
+                        {
+                            // If the file does not exist at the expected location, try recursive search.
+                            string fileName = Path.GetFileName(oldLocalPath);
+                            string[] foundFiles = Directory.GetFiles(extractPath, fileName, SearchOption.AllDirectories);
+                            if (foundFiles.Length > 0)
+                            {
+                                oldLocalPath = foundFiles[0];
+                                Debug.WriteLine($"[DEBUG] PersistQuiz recursive search found: {oldLocalPath}");
+                            }
+                        }
+                        string fileNameOnly = Path.GetFileName(oldLocalPath);
+                        string newLocalPath = Path.Combine(quizPermanentFolder, fileNameOnly);
                         try
                         {
                             File.Copy(oldLocalPath, newLocalPath, true);
                             string newUrl = "file:///" + newLocalPath.Replace('\\', '/');
+                            // Update attachment and question HTML.
                             attachment.FilePath = newUrl;
                             question.Text = question.Text.Replace(oldUrl, newUrl);
                         }
@@ -132,8 +144,7 @@ namespace QTIParserApp.ViewModel
                 }
             }
 
-            // For each question, write its HTML content to a permanent .html file,
-            // and update question.Text to the file URL so the WebView can load it.
+            // Write each question's HTML content to a permanent .html file and update question.Text.
             foreach (var question in quiz.Questions)
             {
                 string questionHtmlFile = Path.Combine(quizPermanentFolder, $"question_{question.QuestionId}.html");
@@ -151,4 +162,5 @@ namespace QTIParserApp.ViewModel
         }
     }
 }
+
 

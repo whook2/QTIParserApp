@@ -34,17 +34,30 @@
                 <DataTemplate x:DataType="model:FormattedQuestion">
                     <StackPanel Margin="10">
                         <TextBlock Text="{x:Bind QuestionType}" 
-                                   FontWeight="Bold" 
-                                   FontSize="16"/>
-                        <muxc:WebView2 Source="{x:Bind FormattedText}"
-                                       Width="750"
-                                       Height="150"
-                                       NavigationStarting="QuestionWebView_NavigationStarting" />
+                   FontWeight="Bold" 
+                   FontSize="16"/>
+                        <muxc:WebView2 Source="{x:Bind Text}"
+                       Width="750"
+                       Height="150"
+                       NavigationStarting="QuestionWebView_NavigationStarting" />
+                        <!-- New: Display Answers -->
+                        <TextBlock Text="Answers:" 
+                   FontWeight="SemiBold" 
+                   Margin="10,5,10,0"/>
+                        <ItemsControl ItemsSource="{x:Bind Answers}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="model:Answer">
+                                    <TextBlock Text="{x:Bind Text}" 
+                               Foreground="DarkBlue"
+                               Margin="10,2"/>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                         <ItemsControl ItemsSource="{x:Bind Attachments}">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate x:DataType="model:QuestionAttachment">
                                     <TextBlock Text="{x:Bind FilePath}"
-                                               Foreground="LightGray"/>
+                               Foreground="LightGray"/>
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>

@@ -6,10 +6,8 @@ namespace QTIParserApp.Model
     {
         public string QuestionType { get; set; }
         public string Text { get; set; }
-        // Now, FormattedText is simply the file URL to the question's HTML.
-        public string FormattedText => Text;
-
         public ObservableCollection<QuestionAttachment> Attachments { get; set; } = new();
+        public ObservableCollection<Answer> Answers { get; set; } = new();
 
         public FormattedQuestion(Question question)
         {
@@ -19,8 +17,12 @@ namespace QTIParserApp.Model
             {
                 Attachments.Add(attachment);
             }
+            foreach (var answer in question.Answers)
+            {
+                Answers.Add(answer);
+            }
         }
     }
-}
 
+}
 
